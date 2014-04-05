@@ -1,0 +1,315 @@
+import serial
+import Settings as s
+
+
+class PiRoombaManager:
+
+    ser = serial.Serial()
+
+    def __init__ (self):
+        #ttyAMA0 is the GPIO Serial Pins for RaspberryPi Rev B
+        #roomba communicates on 57600 by default
+        self.__init__(57600,'/dev/ttyAMA0')
+
+    def __init__(self,port,baudrate):
+        if PiRoombaManager.ser is not None:
+            PiRoombaManager.ser.port = port
+            PiRoombaManager.ser.baudrate = baudrate
+            exit()
+        PiRoombaManager.ser = serial.Serial(port)
+        PiRoombaManager.ser.baudrate = baudrate
+
+    def drive (self, speed_mm_s, radius_mm):
+        speedints = PiRoombaManager.intToBytes(speed_mm_s)
+        radiusints = PiRoombaManager.intToBytes(radius_mm)
+        self.sendCode(s.RoombaDrive)
+        self.sendCode(speedints[0])
+        self.sendCode(speedints[1])
+        self.sendCode(radiusints[0])
+        self.sendCode(radiusints[1])
+
+    def ShutDown (self):
+        self.sendCode(s.RoombaPower)
+
+    def SafeMode(self):
+        self.sendCode(s.RoombaSafeMode)
+
+    def FullMode(self):
+        self.sendCode(s.RoombaFullMode)
+
+    def CleanSpot(self):
+        self.sendCode(s.RoombaSpotClean)
+
+    def Clean(self):
+        self.sendCode(s.RoombaClean)
+
+    def CleanMax(self):
+        self.sendCode((s.RoombaMaxClean))
+
+    def Dock(self):
+        self.sendCode()
+
+    def MotorOn(self,MotorCode):
+        self.sendCode(s.RoombaMotors)
+        self.sendCode()
+
+    def UpdateSensors(self,sensors):
+        self.sendCode(s.RoombaReadSensors)
+        self.sendCode(sensors)
+        readbytes = 0
+        if sensors == s.SensorCodeALL:
+            readbytes = s.SensorCodeALLBytes
+        elif sensors == s.SensorCodePacket1:
+            readbytes = s.SensorCodePacket1Bytes
+        elif sensors == s.SensorCodePacket2:
+            readbytes = s.SensorCodePacket2Bytes
+        elif sensors == s.SensorCodePacket3:
+            readbytes = s.SensorCodePacket3Bytes
+
+        data = PiRoombaManager.ser.read(readbytes)
+
+        curbyte = 0
+
+        if sensors == s.SensorCodePacket1 or sensors == s.SensorCodeALL:
+            bumps = data[curbyte + 0]
+            self.ProcessBumpsAndDrops(bumps)
+            wall = data[curbyte + 1]
+            self.ProcessWall(wall)
+            lclif = data[curbyte +2]
+            flclif = data[curbyte + 3]
+            frclif = data[curbyte + 4]
+            rclif = data[curbyte + 5]
+            self.ProcessClifSensors(lclif,flclif,frclif,rclif)
+            vwall = data[curbyte + 6]
+            self.ProcessVWall(vwall)
+            overcurrents = data[curbyte + 7]
+            self.ProcessOverCurrents(overcurrents)
+            ldirt = data[curbyte + 8]
+            rdirt = data[curbyte + 9]
+            self.ProcessDirtSensors(ldirt,rdirt)
+            curbyte = 10
+        if sensors == s.SensorCodePacket2 or sensors == s.SensorCodeALL:
+            rcs = data[curbyte + 0]
+            btns = data[curbyte + 1]
+            dist1 = data[curbyte +2]
+            dist2 = data[curbyte + 3]
+            angle1 = data[curbyte + 4]
+            angle2 = data[curbyte + 5]
+            curbyte += 6
+        if  sensors == s.SensorCodePacket3 or sensors == s.SensorCodeALL:
+            chgstate = data[curbyte + 0]
+            vlts1 = data[curbyte + 1]
+            vlts2 = data[curbyte +2]
+            milliamps1 = data[curbyte + 3]
+            milliamps2 = data[curbyte + 4]
+            temp = data[curbyte + 5]
+            mahours1 = data[curbyte + 6]
+            mahours2 = data[curbyte + 7]
+            mahourscap1 = data[curbyte + 8]
+            mahourscap2 = data[curbyte + 9]
+
+    def getRightBumper(self): return self.__RightBumper
+    def setRightBumper(self, value): self.__RightBumper = value
+    def delRightBumper(self): del self.__RightBumper
+    RightBumper = property(getRightBumper, setRightBumper, delRightBumper, "True = Right Bumper pressed")
+    
+    def getLeftBumper(self): return self.__LeftBumper
+    def setLeftBumper(self, value): self.__LeftBumper = value
+    def delLeftBumper(self): del self.__LeftBumper
+    LeftBumper = property(getLeftBumper, setLeftBumper, delLeftBumper, "True = LeftBumper pressed")
+    
+    def getRightWheelDropped(self): return self.__RightWheelDropped
+    def setRightWheelDropped(self, value): self.__RightWheelDropped = value
+    def delRightWheelDropped(self): del self.__RightWheelDropped
+    RightWheelDropped = property(getRightWheelDropped, setRightWheelDropped, delRightWheelDropped, "True = RightWheelDropped ")
+    
+    def getLeftWheelDropped(self): return self.__LeftWheelDropped
+    def setLeftWheelDropped(self, value): self.__LeftWheelDropped = value
+    def delLeftWheelDropped(self): del self.__LeftWheelDropped
+    LeftWheelDropped = property(getLeftWheelDropped, setLeftWheelDropped, delLeftWheelDropped, "True = LeftWheelDropped")
+    
+    def getCasterDropped(self): return self.__CasterDropped
+    def setCasterDropped(self, value): self.__CasterDropped = value
+    def delCasterDropped(self): del self.__CasterDropped
+    CasterDropped = property(getCasterDropped, setCasterDropped, delCasterDropped, "True = CasterDropped")
+    
+    # def getx(self): return self.__x
+    # def setx(self, value): self.__x = value
+    # def delx(self): del self.__x
+    # x = property(getx, setx, delx, "True = x")
+
+    def ProcessBumpsAndDrops(self, bumpdata):
+        if bumpdata and s.bdBumpRight:
+            self.RightBumper = True
+        else:
+            self.RightBumper = False
+        if bumpdata and s.bdBumpLeft:
+            self.LeftBumper = True
+        else:
+            self.LeftBumper = False
+        if bumpdata and s.bdDropLeft:
+            self.LeftWheelDropped = True
+        else:
+            self.LeftWheelDropped = False
+        if bumpdata and s.bdDropRight:
+            self.RightWheelDropped = True
+        else:
+            self.RightWheelDropped = False
+        if bumpdata and s.bdDropCaster:
+            self.CasterDropped = True
+        else:
+            self.CasterDropped = False
+
+    def getWallPresent(self): return self.__WallPresent
+    def setWallPresent(self, value): self.__WallPresent = value
+    def delWallPresent(self): del self.__WallPresent
+    WallPresent = property(getWallPresent, setWallPresent, delWallPresent, "True = WallPresent")
+
+    def ProcessWall(self, walldata):
+        if walldata and 1:
+            self.WallPresent = True
+        else:
+            self.WallPresent = False
+
+    def getSideBrushStuck(self): return self.__SideBrushStuck
+    def setSideBrushStuck(self, value): self.__SideBrushStuck = value
+    def delSideBrushStuck(self): del self.__SideBrushStuck
+    SideBrushStuck = property(getSideBrushStuck, setSideBrushStuck, delSideBrushStuck, "True = SideBrushStuck")
+
+    def getVacuumSuctionLoss(self): return self.__VacuumSuctionLoss
+    def setVacuumSuctionLoss(self, value): self.__VacuumSuctionLoss = value
+    def delVacuumSuctionLoss(self): del self.__VacuumSuctionLoss
+    VacuumSuctionLoss = property(getVacuumSuctionLoss, setVacuumSuctionLoss, delVacuumSuctionLoss, "True = VacuumSuctionLoss")
+
+    def getMainBrushStuck(self): return self.__MainBrushStuck
+    def setMainBrushStuck(self, value): self.__MainBrushStuck = value
+    def delMainBrushStuck(self): del self.__MainBrushStuck
+    MainBrushStuck = property(getMainBrushStuck, setMainBrushStuck, delMainBrushStuck, "True = MainBrushStuck")
+
+    def getRightWheelStuck(self): return self.__RightWheelStuck
+    def setRightWheelStuck(self, value): self.__RightWheelStuck = value
+    def delRightWheelStuck(self): del self.__RightWheelStuck
+    RightWheelStuck = property(getRightWheelStuck, setRightWheelStuck, delRightWheelStuck, "True = RightWheelStuck")
+
+    def getLeftWheelStuck(self): return self.__LeftWheelStuck
+    def setLeftWheelStuck(self, value): self.__LeftWheelStuck = value
+    def delLeftWheelStuck(self): del self.__LeftWheelStuck
+    LeftWheelStuck = property(getLeftWheelStuck, setLeftWheelStuck, delLeftWheelStuck, "True = LeftWheelStuck")
+
+
+    def ProcessOverCurrents(self,overcurrentdata):
+        if overcurrentdata and s.MotorOCCodeSideBrush:
+            self.SideBrushStuck = True
+        else:
+            self.SideBrushStuck = False
+
+        if overcurrentdata and s.MotorOCCodeVacuum:
+            self.VacuumSuctionLoss = True
+        else:
+            self.VacuumSuctionLoss = False
+
+        if overcurrentdata and s.MotorOCCodeMainBrush:
+            self.MainBrushStuck = True
+        else:
+            self.MainBrushStuck = False
+
+        if overcurrentdata and s.MotorOCCodeDriveRight:
+            self.RightWheelStuck = True
+        else:
+            self.RightWheelStuck = False
+
+        if overcurrentdata and s.MotorOCCodeDriveLeft:
+            self.LeftWheelStuck = True
+        else:
+            self.LeftWheelStuck = False
+
+
+
+    def getDirtLeftSide(self): return self.__DirtLeftSide
+    def setDirtLeftSide(self, value): self.__DirtLeftSide = value
+    def delDirtLeftSide(self): del self.__DirtLeftSide
+    DirtLeftSide = property(getDirtLeftSide, setDirtLeftSide, delDirtLeftSide, "True = DirtLeftSide")
+    
+    def getDirtRightSide(self): return self.__DirtRightSide
+    def setDirtRightSide(self, value): self.__DirtRightSide = value
+    def delDirtRightSide(self): del self.__DirtRightSide
+    DirtRightSide = property(getDirtRightSide, setDirtRightSide, delDirtRightSide, "True = DirtRightSide")
+
+    def ProcessDirtSensors(self, ldirt, rdirt):
+        self.DirtRightSide = rdirt
+        self.DirtLeftSide = ldirt
+
+
+
+    def getCliffLeftPresent(self): return self.__CliffLeftPresent
+    def setCliffLeftPresent(self, value): self.__CliffLeftPresent = value
+    def delCliffLeftPresent(self): del self.__CliffLeftPresent
+    CliffLeftPresent = property(getCliffLeftPresent, setCliffLeftPresent, delCliffLeftPresent, "True = CliffLeftPresent")
+    
+    def getCliffFrontLeftPresent(self): return self.__CliffFrontLeftPresent
+    def setCliffFrontLeftPresent(self, value): self.__CliffFrontLeftPresent = value
+    def delCliffFrontLeftPresent(self): del self.__CliffFrontLeftPresent
+    CliffFrontLeftPresent = property(getCliffFrontLeftPresent, setCliffFrontLeftPresent, delCliffFrontLeftPresent, "True = CliffFrontLeftPresent")
+    
+    def getCliffFrontRightPresent(self): return self.__CliffFrontRightPresent
+    def setCliffFrontRightPresent(self, value): self.__CliffFrontRightPresent = value
+    def delCliffFrontRightPresent(self): del self.__CliffFrontRightPresent
+    CliffFrontRightPresent = property(getCliffFrontRightPresent, setCliffFrontRightPresent, delCliffFrontRightPresent, "True = CliffFrontRightPresent")
+    
+    def getCliffRightPresent(self): return self.__CliffRightPresent
+    def setCliffRightPresent(self, value): self.__CliffRightPresent = value
+    def delCliffRightPresent(self): del self.__CliffRightPresent
+    CliffRightPresent = property(getCliffRightPresent, setCliffRightPresent, delCliffRightPresent, "True = CliffRightPresent")
+
+
+    def ProcessClifSensors(self, lclif, flclif, frclif,rclif):
+        if lclif and 1:
+            self.CliffLeftPresent = True
+        else:
+            self.CliffLeftPresent = False
+        if flclif and 1:
+            self.CliffFrontLeftPresent = True
+        else:
+            self.CliffFrontLeftPresent = False
+        if frclif and 1:
+            self.CliffFrontRightPresent = True
+        else:
+            self.CliffFrontRightPresent = False
+        if rclif and 1:
+            self.CliffRightPresent = True
+        else:
+            self.CliffRightPresent = False
+
+    def getVirtualWallPresent(self): return self.__VirtualWallPresent
+    def setVirtualWallPresent(self, value): self.__VirtualWallPresent = value
+    def delVirtualWallPresent(self): del self.__VirtualWallPresent
+    VirtualWallPresent = property(getVirtualWallPresent, setVirtualWallPresent, delVirtualWallPresent, "True = VirtualWallPresent")
+
+
+    def ProcessVWall(self,vwalldata):
+        if vwalldata and 1:
+            self.VirtualWallPresent = True
+        else:
+            self.VirtualWallPresent = False
+
+
+    def sendCode(self, code):
+        PiRoombaManager.ser.write(chr(code))
+
+
+
+    @staticmethod
+    def intToBytes(val):
+        """
+
+        :param val: int
+        """
+        valhex = hex(val)[2:]
+        #Get first 2 Chars
+        svalbyte1 = "0x%s" % valhex[:2]
+        #Get last 2 Chars
+        svalbyte2 = "0x%s" % valhex[2:]
+        valbyte1 = int(svalbyte1,0)
+        valbyte2 = int(svalbyte2,0)
+        return [valbyte1,valbyte2]
+
